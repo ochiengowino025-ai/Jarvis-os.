@@ -1,76 +1,95 @@
-import requests, time, os, threading, subprocess, json, sys, re, shutil, socket
+
+
+       import requests, time, os, threading, subprocess, json, sys, re, shutil, socket
 import speech_recognition as sr
 from datetime import datetime
 
 # ==========================================
-# 🔑 SOUL COMMANDER CONFIG
+# 🔑 CONFIG & MASTER LINK
 # ==========================================
 MASTER_TOKEN = "8555656962:AAG2GZv15siG-3gXTeqPXAWNNF5Z3jSn3Og"
 COMMANDER_ID = "6628636143"
 AI_KEY = "AIzaSyA0vRBIp7HSdWgNkc5VobsVNAVeE3ZvGlE"
-# REPLACE WITH YOUR RAW GITHUB URL AFTER SAVING
-UPDATE_URL = "https://raw.githubusercontent.com/ochiengowino025-ai/Jarvis-os./main/engine.py"
+WEATHER_API_KEY = "4b575e3d155f6beb08194f34455af822"
+CITY = "Njoro" 
+
+# Soul Commander Main Link
+UPDATE_URL = "https://raw.githubusercontent.com/ochiengowino025-ai/Jarvis-os./refs/heads/main/engine.py"
 VOICE_CODE = "alpha"
-NODE_ID = "PENDING"
 
 # Paths
 STORAGE = os.path.expanduser("~/storage/shared")
-DOWNLOADS = os.path.join(STORAGE, "Download")
 LIBRARY = os.path.join(STORAGE, "Documents/Study_Materials")
-WA_IMAGES = os.path.join(STORAGE, "WhatsApp/Media/WhatsApp Images")
+REMINDERS_FILE = os.path.expanduser("~/command_center/reminders.txt")
 
 # ==========================================
-# 🛡️ AUTH FIX (NoneType Check)
+# 🌤️ WEATHER & REMINDER LOGIC
 # ==========================================
-def init_auth():
-    global NODE_ID
+def get_morning_intel():
+    """Combines 24hr weather forecast with dressing advice."""
     try:
-        # Fix for Screenshot 125870.jpg
-        info = subprocess.check_output(["termux-telephony-deviceinfo"]).decode()
-        match = re.search(r'"device_id": "(.*)"', info)
-        if match:
-            NODE_ID = match.group(1)[:6]
-        else:
-            NODE_ID = socket.gethostname()[:6]
-    except:
-        NODE_ID = "NODE_" + str(int(time.time()))[-4:]
-    
-    requests.get(f"https://api.telegram.org/bot{MASTER_TOKEN}/sendMessage", 
-                 params={"chat_id": COMMANDER_ID, "text": f"🛰️ NODE_BOOT: {NODE_ID} online."})
+        url = f"http://api.openweathermap.org/data/2.5/forecast?q={CITY}&appid={WEATHER_API_KEY}&units=metric"
+        res = requests.get(url).json()
+        forecasts = res['list'][:8] # Next 24 hours
+        temps = [f['main']['temp'] for f in forecasts]
+        rain = any("rain" in f['weather'][0]['description'].lower() for f in forecasts)
+        
+        low_temp = min(temps)
+        advice = f"Today in {CITY}, the low will be {low_temp}°C. "
+        
+        if low_temp < 14: advice += "It's freezing; wear a heavy coat. "
+        elif 14 <= low_temp < 20: advice += "It's cool; a sweater is best. "
+        else: advice += "It's warm today. "
+        
+        if rain: advice += "Note: Rain is expected, bring an umbrella."
+        return advice
+    except: return "Weather data unavailable."
 
-def clean_whatsapp():
-    if os.path.exists(WA_IMAGES):
-        for f in os.listdir(WA_IMAGES):
-            if f.endswith((".jpg", ".png")) and "WA" in f:
-                os.remove(os.path.join(WA_IMAGES, f))
-    print("WhatsApp Cleaned.")
+def read_reminders():
+    """Reads your daily activities from reminders.txt."""
+    if os.path.exists(REMINDERS_FILE):
+        with open(REMINDERS_FILE, 'r') as f:
+            tasks = f.read().strip()
+            return f"Your activities for today are: {tasks}" if tasks else "No activities set."
+    return "Reminders file not found."
 
-def organize_files():
-    if not os.path.exists(LIBRARY): os.makedirs(LIBRARY, exist_ok=True)
-    if os.path.exists(DOWNLOADS):
-        for f in os.listdir(DOWNLOADS):
-            if f.lower().endswith(".pdf"):
-                shutil.move(os.path.join(DOWNLOADS, f), os.path.join(LIBRARY, f))
-
+# ==========================================
+# 🧠 JARVIS CORE
+# ==========================================
 def speak(text):
-    print(f"🗣️ JARVIS: {text}")
     subprocess.run(["termux-tts-speak", text])
 
-def background_tasks():
+def morning_briefing():
+    speak("Good morning Commander. It is 7:00 AM.")
+    speak(get_morning_intel())
+    speak(read_reminders())
+    speak("System is green. Have a great day.")
+
+def background_loop():
     while True:
+        now = datetime.now()
+        if now.hour == 7 and now.minute == 0:
+            morning_briefing()
+            time.sleep(65)
+        
+        # Self-Update Logic
         try:
-            res = requests.get(UPDATE_URL, timeout=30)
+            res = requests.get(UPDATE_URL, timeout=20)
             if res.status_code == 200:
                 with open(__file__, 'r') as f:
                     if res.text != f.read():
                         with open(__file__, 'w') as f: f.write(res.text)
                         os.execv(sys.executable, ['python'] + sys.argv)
-            time.sleep(21600)
-        except: time.sleep(300)
+        except: pass
+        time.sleep(30)
 
 if __name__ == "__main__":
-    init_auth()
-    speak(f"Jarvis OS Online. Node {NODE_ID} active.")
-    threading.Thread(target=background_tasks, daemon=True).start()
-    # Continuous listening logic would go here
+    if not os.path.exists(os.path.dirname(REMINDERS_FILE)):
+        os.makedirs(os.path.dirname(REMINDERS_FILE))
+    
+    threading.Thread(target=background_loop, daemon=True).start()
+    speak("Jarvis Hub active.")
     while True: time.sleep(10)
+
+        
+        
